@@ -1,0 +1,104 @@
+name: Wine custom build
+
+# Builds one Wine tarball in the same old-Ubuntu (bionic) chroot as the other workflows,
+# either from an upstream release tarball or from a branch of any git repository, and
+# publishes it as a GitHub release. Run it by hand from the Actions tab.
+#
+# Prerequisite: the "Bootstraps CI" workflow must have succeeded once in this repository
+# (its artifact holds the build chroots; artifacts expire, by default after 90 days).
+
+on:
+  workflow_dispatch:
+    inputs:
+      wine_version:
+        description: "Upstream Wine version to build when 'custom_src' is empty (e.g. 10.13)"
+        default: "10.13"
+        required: true
+      custom_src:
+        description: "Git URL of a Wine source tree to build instead (empty = upstream release)"
+        default: ""
+        required: false
+      custom_branch:
+        description: "Branch or tag of 'custom_src' to build"
+        default: ""
+        required: false
+      label:
+        description: "Short label for the build name and release tag (e.g. cef-share)"
+        default: "test"
+        required: true
+
+permissions:
+  contents: write   # needed to publish the release
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download bootstraps artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: bootstraps.yml
+          workflow_conclusion: success
+          path: /opt
+
+      - name: Build Wine
+        env:
+          # Inputs are passed through the environment, never interpolated into the script.
+          IN_WINE_VERSION: ${{ inputs.wine_version }}
+          IN_CUSTOM_SRC: ${{ inputs.custom_src }}
+          IN_CUSTOM_BRANCH: ${{ inputs.custom_branch }}
+          IN_LABEL: ${{ inputs.label }}
+        run: |
+          sudo apt update
+          sudo apt install binutils-mingw-w64-i686 binutils-mingw-w64-x86-64 debootstrap perl git wget xz-utils bubblewrap autoconf
+          sudo tar -C /opt -xpf /opt/Bootstraps/bootstraps.tar.xz
+          chmod +x build_wine.sh
+          export EXPERIMENTAL_WOW64="true"
+          if [ -n "$IN_CUSTOM_SRC" ]; then
+            export CUSTOM_SRC_PATH="$IN_CUSTOM_SRC"
+            export CUSTOM_SRC_BRANCH="$IN_CUSTOM_BRANCH"
+            export CUSTOM_BUILD_LABEL="$IN_LABEL"
+          else
+            export WINE_VERSION="$IN_WINE_VERSION"
+          fi
+          WINE_BRANCH=vanilla ./build_wine.sh
+          ls -l ./*.tar.xz
+          sha256sum ./*.tar.xz
+
+      - name: Report size and glibc requirement
+        run: |
+          for f in ./wine-*.tar.xz; do
+            d=$(mktemp -d)
+            tar -C "$d" -xf "$f"
+            w=$(echo "$d"/wine-*)
+            need=$(objdump -T "$w"/bin/wineserver "$w"/lib/wine/x86_64-unix/ntdll.so 2>/dev/null \
+                     | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
+            {
+              echo "### $(basename "$f")"
+              echo "- tarball: $(du -h "$f" | cut -f1)"
+              echo "- unpacked: $(du -sh "$w" | cut -f1)"
+              echo "- x86_64-windows: $(du -sh "$w"/lib/wine/x86_64-windows | cut -f1)"
+              echo "- x86_64-unix: $(du -sh "$w"/lib/wine/x86_64-unix | cut -f1)"
+              echo "- static libs (*.a): $(find "$w" -name '*.a' | wc -l)"
+              echo "- newest glibc symbol needed by wineserver/ntdll.so: ${need:-unknown}"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            rm -rf "$d"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Wine-custom
+          path: ./*.tar.xz
+
+      - name: Build release
+        uses: marvinpinto/action-automatic-releases@6273874b61ebc8c71f1a61b2d98e234cf389b303
+        with:
+          title: "wine-builds custom (${{ inputs.label }})"
+          automatic_release_tag: "custom-${{ inputs.label }}"
+          prerelease: true
+          draft: false
+          files: ./*.tar.xz
+          repo_token: ${{ secrets.GITHUB_TOKEN }}

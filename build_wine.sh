@@ -62,7 +62,14 @@ export EXPERIMENTAL_WOW64="${EXPERIMENTAL_WOW64:-true}"
 #
 # If you don't want to compile a custom Wine source code, then just leave this
 # variable empty.
-export CUSTOM_SRC_PATH=""
+export CUSTOM_SRC_PATH="${CUSTOM_SRC_PATH:-}"
+
+# Branch (or tag) to check out when CUSTOM_SRC_PATH is a git URL. Empty = default branch.
+export CUSTOM_SRC_BRANCH="${CUSTOM_SRC_BRANCH:-}"
+
+# Optional label appended to the build name of custom builds, e.g. "cef-share"
+# gives wine-10.13-custom-cef-share-amd64.tar.xz
+export CUSTOM_BUILD_LABEL="${CUSTOM_BUILD_LABEL:-}"
 
 # Set to true to download and prepare the source code, but do not compile it.
 # If this variable is set to true, root rights are not required.
@@ -193,7 +200,11 @@ if [ -n "${CUSTOM_SRC_PATH}" ]; then
 	is_url="$(echo "${CUSTOM_SRC_PATH}" | head -c 6)"
 
 	if [ "${is_url}" = "git://" ] || [ "${is_url}" = "https:" ]; then
-		git clone "${CUSTOM_SRC_PATH}" wine
+		if [ -n "${CUSTOM_SRC_BRANCH}" ]; then
+			git clone --depth 1 -b "${CUSTOM_SRC_BRANCH}" "${CUSTOM_SRC_PATH}" wine
+		else
+			git clone "${CUSTOM_SRC_PATH}" wine
+		fi
 	else
 		if [ ! -f "${CUSTOM_SRC_PATH}"/configure ]; then
 			echo "CUSTOM_SRC_PATH is set to an incorrect or non-existent directory!"
@@ -205,7 +216,7 @@ if [ -n "${CUSTOM_SRC_PATH}" ]; then
 	fi
 
 	WINE_VERSION="$(cat wine/VERSION | tail -c +14)"
-	BUILD_NAME="${WINE_VERSION}"-custom
+	BUILD_NAME="${WINE_VERSION}"-custom"${CUSTOM_BUILD_LABEL:+-${CUSTOM_BUILD_LABEL}}"
 elif [ "$WINE_BRANCH" = "staging-tkg" ] || [ "$WINE_BRANCH" = "staging-tkg-fsync" ]; then
 	if [ "$WINE_BRANCH" = "staging-tkg" ]; then
 		git clone https://github.com/Kron4ek/wine-tkg wine
