@@ -1,8 +1,7 @@
 name: Wine-latest CI
 
+# Manual start only (Actions tab, Run workflow). The upstream timer/push triggers were removed in this fork.
 on:
-  schedule:
-    - cron:  '0 0 */6 * *'
   workflow_dispatch:
 
 jobs:

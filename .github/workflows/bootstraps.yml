@@ -1,8 +1,7 @@
 name: Bootstraps CI
 
+# Manual start only (Actions tab, Run workflow). The upstream timer/push triggers were removed in this fork.
 on:
-  schedule:
-    - cron:  0 0 */5 * *
   workflow_dispatch:
 
 jobs:
